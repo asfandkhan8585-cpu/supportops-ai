@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.env
+.env.*
+.wwebjs_auth
+.wwebjs_cache
+tests
+coverage
+*.zip
+*.md
+!README.md

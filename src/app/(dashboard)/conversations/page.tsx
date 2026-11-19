@@ -1,0 +1,634 @@
+"use client";
+
+import { Header } from "@/components/layout/header";
+import { useSearchParams } from "next/navigation";
+import {
+  MessageCircle,
+  Mail,
+  Phone,
+  MessageSquare,
+  Search,
+  Send,
+  Inbox,
+  ArrowLeft,
+  Tag,
+} from "lucide-react";
+import { Suspense, useState, useEffect, useRef, useCallback } from "react";
+import {
+  cn,
+  formatRelativeTime,
+  getChannelLabel,
+  getStatusColor,
+} from "@/lib/utils";
+
+interface MessageData {
+  id: string;
+  conversationId: string;
+  role: string;
+  content: string;
+  mediaType?: string | null;
+  mediaUrl?: string | null;
+  createdAt: string;
+}
+
+interface TagData {
+  id: string;
+  tag: {
+    id: string;
+    name: string;
+    color: string;
+  };
+}
+
+interface ConversationData {
+  id: string;
+  channel: string;
+  customerName: string;
+  customerContact: string;
+  status: string;
+  summary: string;
+  messages: MessageData[];
+  _count: { messages: number };
+  tags: TagData[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+const channelIcons: Record<string, React.ElementType> = {
+  whatsapp: MessageCircle,
+  email: Mail,
+  phone: Phone,
+};
+
+const channelColors: Record<string, string> = {
+  whatsapp: "text-green-600 bg-green-50",
+  email: "text-blue-600 bg-blue-50",
+  phone: "text-purple-600 bg-purple-50",
+};
+
+const channels = [
+  { value: "all", label: "All Channels" },
+  { value: "web", label: "Customer portal" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "email", label: "Email" },
+  { value: "phone", label: "Archived calls" },
+];
+
+const statuses = [
+  { value: "all", label: "All Status" },
+  { value: "active", label: "Active" },
+  { value: "resolved", label: "Resolved" },
+  { value: "escalated", label: "Escalated" },
+  { value: "closed", label: "Closed" },
+];
+
+export default function ConversationsPage() {
+  return (
+    <Suspense fallback={<Header title="Conversations" />}>
+      <ConversationsInbox />
+    </Suspense>
+  );
+}
+
+function ConversationsInbox() {
+  const initialConversationId = useSearchParams().get("id");
+  const [conversations, setConversations] = useState<ConversationData[]>([]);
+  const [selectedId, setSelectedId] = useState(initialConversationId);
+  const [selectedConversation, setSelectedConversation] =
+    useState<ConversationData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [channelFilter, setChannelFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [replyText, setReplyText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [mobileShowDetail, setMobileShowDetail] = useState(Boolean(initialConversationId));
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const fetchConversations = useCallback(async () => {
+    try {
+      setFetchError(null);
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      if (channelFilter !== "all") params.set("channel", channelFilter);
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (searchQuery.trim()) params.set("search", searchQuery.trim());
+
+      const res = await fetch(`/api/conversations?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to load conversations");
+      const { data, pagination } = await res.json();
+      const lastPage = Math.max(1, pagination.totalPages);
+      if (page > lastPage) {
+        setPage(lastPage);
+        return;
+      }
+      setConversations(data);
+      setTotalPages(lastPage);
+    } catch (error) {
+      console.error("Failed to fetch conversations:", error);
+      setFetchError("Failed to load conversations. Please try refreshing the page.");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, channelFilter, statusFilter, searchQuery]);
+
+  const fetchConversationDetail = useCallback(async (id: string) => {
+    setDetailLoading(true);
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedConversation(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch conversation detail:", error);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchConversations();
+  }, [fetchConversations]);
+
+  useEffect(() => {
+    if (selectedId) {
+      fetchConversationDetail(selectedId);
+    }
+  }, [selectedId, fetchConversationDetail]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selectedConversation?.messages]);
+
+  const handleSelectConversation = (id: string) => {
+    setSelectedId(id);
+    setMobileShowDetail(true);
+  };
+
+  const handleSendReply = async () => {
+    if (!replyText.trim() || !selectedId || sending) return;
+    setSending(true);
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(selectedId)}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: replyText.trim(), role: "agent" }),
+      });
+      if (res.ok) {
+        setReplyText("");
+        fetchConversationDetail(selectedId);
+        fetchConversations();
+      }
+    } catch (error) {
+      console.error("Failed to send message:", error);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleStatusChange = async (newStatus: string) => {
+    if (!selectedId) return;
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(selectedId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (res.ok) {
+        fetchConversationDetail(selectedId);
+        fetchConversations();
+      }
+    } catch (error) {
+      console.error("Failed to update status:", error);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendReply();
+    }
+  };
+
+  return (
+    <>
+      <Header
+        title="Conversations"
+        description="Manage all customer interactions"
+      />
+
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Panel - Conversation List */}
+        <div
+          className={cn(
+            "w-full md:w-96 lg:w-[420px] border-r border-supportops-border flex flex-col bg-supportops-surface",
+            mobileShowDetail && "hidden md:flex"
+          )}
+        >
+          {/* Filters */}
+          <div className="p-3 border-b border-supportops-border space-y-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-supportops-text-light" />
+              <input
+                type="text"
+                placeholder="Search conversations..."
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+                className="w-full pl-9 pr-3 py-2 text-sm border border-supportops-border rounded-lg bg-supportops-bg focus:outline-none focus:ring-2 focus:ring-supportops-primary/30 focus:border-supportops-primary"
+              />
+            </div>
+            <div className="flex gap-2">
+              <select
+                value={channelFilter}
+                onChange={(e) => { setChannelFilter(e.target.value); setPage(1); }}
+                className="flex-1 text-xs px-2 py-1.5 border border-supportops-border rounded-lg bg-supportops-bg focus:outline-none focus:ring-2 focus:ring-supportops-primary/30 text-supportops-text"
+              >
+                {channels.map((ch) => (
+                  <option key={ch.value} value={ch.value}>
+                    {ch.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                className="flex-1 text-xs px-2 py-1.5 border border-supportops-border rounded-lg bg-supportops-bg focus:outline-none focus:ring-2 focus:ring-supportops-primary/30 text-supportops-text"
+              >
+                {statuses.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Conversation List */}
+          <div className="flex-1 overflow-y-auto">
+            {loading ? (
+              <div className="flex items-center justify-center h-40">
+                <div className="text-sm text-supportops-text-light">Loading...</div>
+              </div>
+            ) : fetchError ? (
+              <div className="flex flex-col items-center justify-center h-64 px-6 text-center">
+                <div className="p-4 rounded-full bg-red-50 mb-4">
+                  <Inbox className="h-8 w-8 text-red-400" />
+                </div>
+                <p className="font-medium text-supportops-text">
+                  Could not load conversations
+                </p>
+                <p className="text-sm text-supportops-text-light mt-1">
+                  {fetchError}
+                </p>
+                <button
+                  onClick={() => { setLoading(true); fetchConversations(); }}
+                  className="mt-3 px-4 py-2 text-sm font-medium text-white bg-supportops-primary rounded-lg hover:bg-supportops-primary/90 transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : conversations.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 px-6 text-center">
+                <div className="p-4 rounded-full bg-supportops-primary-50 mb-4">
+                  <Inbox className="h-8 w-8 text-supportops-primary" />
+                </div>
+                <p className="font-medium text-supportops-text">
+                  No conversations found
+                </p>
+                <p className="text-sm text-supportops-text-light mt-1">
+                  Conversations will appear here when customers reach out
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-supportops-border">
+                {conversations.map((conv) => {
+                  const ChannelIcon =
+                    channelIcons[conv.channel] || MessageSquare;
+                  const lastMessage = conv.messages[0];
+                  const isSelected = selectedId === conv.id;
+
+                  return (
+                    <button
+                      key={conv.id}
+                      onClick={() => handleSelectConversation(conv.id)}
+                      className={cn(
+                        "w-full px-4 py-3.5 text-left hover:bg-supportops-primary-50/50 transition-colors",
+                        isSelected && "bg-supportops-primary-50 border-l-2 border-l-supportops-primary"
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={cn(
+                            "p-2 rounded-lg mt-0.5 flex-shrink-0",
+                            channelColors[conv.channel] ||
+                              "text-supportops-primary bg-supportops-primary-50"
+                          )}
+                        >
+                          <ChannelIcon className="h-4 w-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <p className="font-medium text-sm text-supportops-text truncate">
+                              {conv.customerName}
+                            </p>
+                            <span className="text-xs text-supportops-text-light flex-shrink-0 ml-2">
+                              {formatRelativeTime(conv.updatedAt)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-supportops-text-light">
+                              {getChannelLabel(conv.channel)}
+                            </span>
+                            <span className="text-xs text-supportops-text-light">
+                              --
+                            </span>
+                            <span className="text-xs text-supportops-text-light">
+                              {conv._count.messages} messages
+                            </span>
+                          </div>
+                          {lastMessage && (
+                            <p className="text-sm text-supportops-text-light mt-1 truncate">
+                              {(lastMessage.role === "admin" || lastMessage.role === "agent") && (
+                                <span className="text-supportops-primary font-medium">
+                                  You:{" "}
+                                </span>
+                              )}
+                              {lastMessage.content}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <span
+                              className={cn(
+                                "px-2 py-0.5 rounded-full text-xs font-medium",
+                                getStatusColor(conv.status)
+                              )}
+                            >
+                              {conv.status}
+                            </span>
+                            {conv.tags.slice(0, 2).map((ct) => (
+                              <span
+                                key={ct.id}
+                                className="px-1.5 py-0.5 rounded text-xs font-medium bg-supportops-primary-50 text-supportops-primary"
+                              >
+                                {ct.tag.name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          {!fetchError && totalPages > 1 && (
+            <nav aria-label="Conversation pages" className="flex items-center justify-between gap-2 border-t border-supportops-border p-3 text-xs">
+              <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="disabled:opacity-40">Previous</button>
+              <span>Page {page} of {totalPages}</span>
+              <button type="button" disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="disabled:opacity-40">Next</button>
+            </nav>
+          )}
+        </div>
+
+        {/* Right Panel - Conversation Detail */}
+        <div
+          className={cn(
+            "flex-1 flex flex-col bg-supportops-bg",
+            !mobileShowDetail && "hidden md:flex"
+          )}
+        >
+          {!selectedId ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+              <div className="p-5 rounded-full bg-supportops-surface border border-supportops-border mb-4">
+                <MessageSquare className="h-10 w-10 text-supportops-text-light" />
+              </div>
+              <p className="font-semibold text-lg text-supportops-text">
+                Select a conversation
+              </p>
+              <p className="text-sm text-supportops-text-light mt-1 max-w-sm">
+                Choose a conversation from the list to view the full message
+                thread and reply to customers
+              </p>
+            </div>
+          ) : detailLoading && !selectedConversation ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-sm text-supportops-text-light">Loading...</div>
+            </div>
+          ) : selectedConversation ? (
+            <>
+              {/* Conversation Header */}
+              <div className="px-4 py-3 bg-supportops-surface border-b border-supportops-border flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setMobileShowDetail(false);
+                    setSelectedId(null);
+                    setSelectedConversation(null);
+                  }}
+                  className="md:hidden p-1.5 hover:bg-supportops-primary-50 rounded-lg transition-colors"
+                >
+                  <ArrowLeft className="h-5 w-5 text-supportops-text" />
+                </button>
+                <div
+                  className={cn(
+                    "p-2 rounded-lg flex-shrink-0",
+                    channelColors[selectedConversation.channel] ||
+                      "text-supportops-primary bg-supportops-primary-50"
+                  )}
+                >
+                  {(() => {
+                    const Icon =
+                      channelIcons[selectedConversation.channel] ||
+                      MessageSquare;
+                    return <Icon className="h-4 w-4" />;
+                  })()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-supportops-text truncate">
+                      {selectedConversation.customerName}
+                    </h3>
+                    <span
+                      className={cn(
+                        "px-2 py-0.5 rounded-full text-xs font-medium",
+                        getStatusColor(selectedConversation.status)
+                      )}
+                    >
+                      {selectedConversation.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-supportops-text-light">
+                    <span>
+                      {getChannelLabel(selectedConversation.channel)}
+                    </span>
+                    {selectedConversation.customerContact && (
+                      <>
+                        <span>--</span>
+                        <span>{selectedConversation.customerContact}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <select
+                    value={selectedConversation.status}
+                    onChange={(e) => handleStatusChange(e.target.value)}
+                    className="text-xs px-2 py-1.5 border border-supportops-border rounded-lg bg-supportops-bg focus:outline-none focus:ring-2 focus:ring-supportops-primary/30 text-supportops-text"
+                  >
+                    {statuses
+                      .filter((s) => s.value !== "all")
+                      .map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.label}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Tags Bar */}
+              {selectedConversation.tags.length > 0 && (
+                <div className="px-4 py-2 bg-supportops-surface border-b border-supportops-border flex items-center gap-2">
+                  <Tag className="h-3.5 w-3.5 text-supportops-text-light" />
+                  {selectedConversation.tags.map((ct) => (
+                    <span
+                      key={ct.id}
+                      className="px-2 py-0.5 rounded-full text-xs font-medium"
+                      style={{
+                        backgroundColor: ct.tag.color + "20",
+                        color: ct.tag.color,
+                      }}
+                    >
+                      {ct.tag.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Messages Thread */}
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+                {selectedConversation.messages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center">
+                    <MessageSquare className="h-8 w-8 text-supportops-text-light opacity-40 mb-2" />
+                    <p className="text-sm text-supportops-text-light">
+                      No messages in this conversation yet
+                    </p>
+                  </div>
+                ) : (
+                  selectedConversation.messages.map((msg) => {
+                    const isAdmin =
+                      msg.role === "admin" || msg.role === "agent" || msg.role === "assistant";
+                    const isSystem = msg.role === "system";
+
+                    if (isSystem) {
+                      return (
+                        <div key={msg.id} className="flex justify-center">
+                          <div className="px-3 py-1.5 bg-supportops-surface border border-supportops-border rounded-full text-xs text-supportops-text-light">
+                            {msg.content}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div
+                        key={msg.id}
+                        className={cn(
+                          "flex",
+                          isAdmin ? "justify-end" : "justify-start"
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "max-w-[75%] rounded-2xl px-4 py-2.5",
+                            isAdmin
+                              ? "bg-supportops-primary text-white rounded-br-md"
+                              : "bg-supportops-surface border border-supportops-border text-supportops-text rounded-bl-md"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span
+                              className={cn(
+                                "text-xs font-medium",
+                                isAdmin
+                                  ? "text-white/80"
+                                  : "text-supportops-text-light"
+                              )}
+                            >
+                              {isAdmin
+                                ? msg.role === "assistant"
+                                  ? "AI Assistant"
+                                  : "Support team"
+                                : selectedConversation.customerName}
+                            </span>
+                          </div>
+                          <p className="text-sm whitespace-pre-wrap break-words">
+                            {msg.content}
+                          </p>
+                          <p
+                            className={cn(
+                              "text-xs mt-1",
+                              isAdmin
+                                ? "text-white/60"
+                                : "text-supportops-text-light"
+                            )}
+                          >
+                            {formatRelativeTime(msg.createdAt)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Reply Input */}
+              <div className="px-4 py-3 bg-supportops-surface border-t border-supportops-border">
+                <div className="flex items-end gap-2">
+                  <div className="flex-1 relative">
+                    <textarea
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Type your reply... (Enter to send, Shift+Enter for new line)"
+                      rows={1}
+                      className="w-full px-4 py-2.5 text-sm border border-supportops-border rounded-xl bg-supportops-bg focus:outline-none focus:ring-2 focus:ring-supportops-primary/30 focus:border-supportops-primary resize-none"
+                      style={{
+                        minHeight: "42px",
+                        maxHeight: "120px",
+                      }}
+                      onInput={(e) => {
+                        const target = e.target as HTMLTextAreaElement;
+                        target.style.height = "auto";
+                        target.style.height =
+                          Math.min(target.scrollHeight, 120) + "px";
+                      }}
+                    />
+                  </div>
+                  <button
+                    onClick={handleSendReply}
+                    disabled={!replyText.trim() || sending}
+                    className={cn(
+                      "p-2.5 rounded-xl transition-colors flex-shrink-0",
+                      replyText.trim() && !sending
+                        ? "bg-supportops-primary text-white hover:bg-supportops-primary-dark"
+                        : "bg-supportops-border text-supportops-text-light cursor-not-allowed"
+                    )}
+                  >
+                    <Send className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </>
+  );
+}
