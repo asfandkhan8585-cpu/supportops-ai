@@ -1,5 +1,7 @@
 "use client";
 
+import { OPENROUTER_MODELS } from "@/lib/ai/openrouter-models";
+
 import { Header } from "@/components/layout/header";
 import { cn } from "@/lib/utils";
 import {
@@ -422,6 +424,7 @@ function AISection({
   update: (field: keyof SettingsData, value: string | number) => void;
 }) {
   const modelOptions: Record<string, { value: string; label: string }[]> = {
+    openrouter: OPENROUTER_MODELS,
     openai: [
       { value: "gpt-4o", label: "GPT-4o" },
       { value: "gpt-4o-mini", label: "GPT-4o Mini" },
@@ -446,6 +449,7 @@ function AISection({
           value={data.aiProvider}
           onChange={(v) => {
             update("aiProvider", v);
+            update("aiApiKey", "");
             const models = modelOptions[v];
             if (models && models.length > 0) {
               update("aiModel", models[0].value);
@@ -453,6 +457,7 @@ function AISection({
           }}
           options={[
             { value: "openai", label: "OpenAI" },
+            { value: "openrouter", label: "OpenRouter" },
             { value: "claude", label: "Claude (Anthropic)" },
             { value: "ollama", label: "Ollama (Local)" },
           ]}
@@ -773,6 +778,12 @@ export default function SettingsPage() {
       });
 
       if (!res.ok) throw new Error("Save failed");
+      if (activeTab === "ai") {
+        const { aiApiKey } = await res.json();
+        setData((prev) => prev.aiApiKey === payload.aiApiKey && prev.aiProvider === payload.aiProvider
+          ? { ...prev, aiApiKey }
+          : prev);
+      }
       addToast("success", "Settings saved successfully");
     } catch {
       addToast("error", "Failed to save settings. Please try again.");

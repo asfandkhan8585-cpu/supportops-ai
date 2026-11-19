@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { OPENROUTER_MODELS } from "@/lib/ai/openrouter-models";
 
 const STEPS = [
   "Create Admin Account",
@@ -20,6 +21,7 @@ const TONE_OPTIONS = [
 
 const PROVIDER_OPTIONS = [
   { value: "openai", label: "OpenAI", models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"] },
+  { value: "openrouter", label: "OpenRouter", models: OPENROUTER_MODELS.map(({ value }) => value) },
   { value: "claude", label: "Claude (Anthropic)", models: ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"] },
   { value: "ollama", label: "Ollama (Local)", models: ["llama3", "mistral", "codellama", "phi3"] },
 ];
@@ -339,6 +341,7 @@ export default function SetupPage() {
                   onChange={(e) => {
                     const prov = e.target.value;
                     setAiProvider(prov);
+                    setAiApiKey("");
                     const models =
                       PROVIDER_OPTIONS.find((p) => p.value === prov)?.models ||
                       [];

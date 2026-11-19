@@ -22,12 +22,12 @@ Open [initial setup](http://localhost:3000/setup) to create the first staff admi
 | `DATABASE_URL` | PostgreSQL connection string |
 | `JWT_SECRET` | Server-side secret for signing staff and customer sessions |
 | `NEXT_PUBLIC_APP_URL` | Public origin for links, callbacks, and integrations |
-| `OPENROUTER_API_KEY` | Enables `openai/gpt-oss-120b` for chat and the knowledge preview |
+| `OPENROUTER_API_KEY` | Optional server-side OpenRouter key |
 | `OPENAI_API_KEY` | Optional direct OpenAI credential and embedding access |
 | `WEBHOOK_SECRET` | Optional secret for signing outgoing webhooks |
 | `CORS_ORIGIN` | Optional allowed origin for cross-origin API requests |
 
-When `OPENROUTER_API_KEY` is set, it takes precedence over the chat provider and model in **Settings**. Restart the app after changing server credentials. Set email transport in **Channels**, or pair WhatsApp using **Linked Devices**.
+To use OpenRouter, choose **OpenRouter** during setup or in **Settings → AI Configuration**, select a model, and save your API key. GPT-OSS 120B is the default OpenRouter model. A saved OpenRouter key takes precedence over `OPENROUTER_API_KEY`. The environment key also supports existing installations that use the default OpenAI provider without an OpenAI key. Restart the app after changing environment credentials. Set email transport in **Channels**, or pair WhatsApp using **Linked Devices**.
 
 ## Orders and approvals
 
